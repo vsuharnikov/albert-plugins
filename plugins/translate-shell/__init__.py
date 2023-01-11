@@ -49,7 +49,7 @@ class Plugin(QueryHandler):
         debug('[translate-shell] Regexp: ' + r)
         self.regexp = re.compile(r, re.DOTALL)
 
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self.runLoop)
         self.thread.start()
         debug('[translate-shell] Started')
