@@ -1,0 +1,4 @@
+/.idea
+/.projectile
+*.iml
+__pycache__
