@@ -1,6 +1,6 @@
-import asyncio
 import os
 import re
+import time
 import subprocess
 import threading
 from albert import *
@@ -19,12 +19,9 @@ class Plugin(QueryHandler):
     curr_dir = ''
 
     regexp = None
-    query = None
 
-    thead = None
-    loop = None
-
-    curr_task = None
+    job_thread = None
+    last_query = None
 
     def id(self):
         return __name__
@@ -49,23 +46,25 @@ class Plugin(QueryHandler):
         debug('[translate-shell] Regexp: ' + r)
         self.regexp = re.compile(r, re.DOTALL)
 
-        self.loop = asyncio.new_event_loop()
-        self.thread = threading.Thread(target=self.runLoop)
-        self.thread.start()
         debug('[translate-shell] Started')
 
     def finalize(self):
-        self.is_working = False
-        if self.curr_task:
-            self.curr_task.cancel()
-        self.thread.join()
+        if self.job_thread:
+            self.job_thread.stop()
         debug('[translate-shell] Closed')
 
     def handleQuery(self, query):
-        if self.curr_task:
-            self.curr_task.cancel()
-        self.query = query
-        self.curr_task = self.loop.create_task(self.debounced())
+        # cancel if there is a new query
+        for number in range(50):
+            time.sleep(0.01)
+            if not query.isValid:
+                return
+
+        self.last_query = query
+        if self.job_thread:
+            self.job_thread.stop()
+        self.job_thread = InterruptableThread(target=self.job)
+        self.job_thread.start()
 
     # Internal
     def mkItem(self, src_lang, dst_lang, text):
@@ -84,12 +83,8 @@ class Plugin(QueryHandler):
             )]
         )
 
-    async def debounced(self):
-        await asyncio.sleep(0.5)
-        if not self.query.isValid:
-            return
-
-        s = self.query.string.strip().lower()
+    def job(self):
+        s = self.last_query.string.strip().lower()
         r = self.regexp.fullmatch(s)
         if r is None:
             debug('[translate-shell] Nothing parsed')
@@ -101,16 +96,24 @@ class Plugin(QueryHandler):
 
         translation = self.exec(['-b', f'{src_lang}:{dst_lang}', text])
         debug(f'"{text}", {src_lang} -> {dst_lang}: {translation}')
-        if self.query.isValid:
-            self.query.add(self.mkItem(src_lang, dst_lang, translation))
 
-    def runLoop(self):
-        self.loop.run_until_complete(self.watchLoop())
-
-    async def watchLoop(self):
-        while self.is_working:
-            await asyncio.sleep(1)
+        item = self.mkItem(src_lang, dst_lang, translation)
+        if self.last_query.isValid:
+            self.last_query.add(item)
 
     def exec(self, args):
         proc = subprocess.run(['trans'] + args, stdout=subprocess.PIPE)
         return proc.stdout.decode()
+
+
+# https://www.geeksforgeeks.org/python-different-ways-to-kill-a-thread/
+class InterruptableThread(threading.Thread):
+    def __init__(self, *args, **kwargs):
+        super(InterruptableThread, self).__init__(*args, **kwargs)
+        self._stop = threading.Event()
+
+    def stop(self):
+        self._stop.set()
+
+    def stopped(self):
+        return self._stop.isSet()
