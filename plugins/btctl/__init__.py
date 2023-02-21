@@ -54,10 +54,10 @@ class Plugin(QueryHandler):
             id, name = x.removeprefix('Device ').split(' ', 1)
 
             if id in connected:
-                item = self.makeDisconnectItem(id, name)
+                # prepending, because it's highly likely a user wants to disconnect a device
+                items.insert(0, self.makeDisconnectItem(id, name))
             else:
-                item = self.makeConnectItem(id, name)
-            items.append(item)
+                items.append(self.makeConnectItem(id, name))
 
         return items
 
